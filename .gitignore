@@ -1,0 +1,16 @@
+*.out
+.vscode
+tools/nohup.out
+.ipynb_checkpoints/
+.ipython/
+.local/
+*.iml
+.jupyter/
+.idea
+__pycache__/
+venv
+.hmcl.json
+.minecraft
+.DS_Store
+*.bkp
+*.mp4
