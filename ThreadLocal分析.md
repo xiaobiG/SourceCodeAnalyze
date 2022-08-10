@@ -136,6 +136,43 @@ public class RequestContext {
 
 ThreadLocalMap是一个内部类，它是专门用于ThreadLocal的，与一般的Map不同，它的键类型为WeakReference<ThreadLocal>。
 
+一图胜千言：
+
+![image-20220810132044987](assets/image-20220810132044987.png)
+
+通过当前线程拿到对应ThreadLocalMap，以自身为键存储value：
+
+```java
+    public void set(T value) {
+        Thread t = Thread.currentThread();
+        ThreadLocalMap map = getMap(t);
+        if (map != null)
+            map.set(this, value);
+        else
+            createMap(t, value);
+    }
+```
+
+当值为空时返回`setInitialValue`的返回值。
+
+```java
+    public T get() {
+        Thread t = Thread.currentThread();
+        ThreadLocalMap map = getMap(t);
+        if (map != null) {
+            ThreadLocalMap.Entry e = map.getEntry(this);
+            if (e != null) {
+                @SuppressWarnings("unchecked")
+                T result = (T)e.value;
+                return result;
+            }
+        }
+        return setInitialValue();
+    }
+```
+
+
+
 # 线程池与ThreadLocal
 
 线程池中的线程在执行完一个任务，执行下一个任务时，其中的ThreadLocal对象并不会被清空，修改后的值带到了下一个异步任务。那怎么办呢？有几种思路：
@@ -145,5 +182,4 @@ ThreadLocalMap是一个内部类，它是专门用于ThreadLocal的，与一般�
 - 使用完ThreadLocal对象后，总是调用其remove方法
 
 - 使用自定义的线程池
-
 

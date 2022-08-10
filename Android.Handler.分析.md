@@ -1,6 +1,6 @@
-# Handler
+# Handler机制
 
-- 线程间通信，延时启动。
+- 线程间通信，延时消息。
 
 - 两种用法：
 
@@ -157,15 +157,18 @@ private class MyThread extends Thread{
     }
 ```
 
-### Handler 是怎么和特定线程的消息队列完成绑定的？
+### Looper
 
-或者说，一个handler发送消息，他是怎么知道要在哪个线程中处理消息？
+一个Thread一个Looper一个MessageQueue。
+
+Looper是事件循环的核心。
 
 Handler 的无参构造函数：
 
 ```java
 public Handler() {
     if (FIND_POTENTIAL_LEAKS) {
+      // 当非静态类使用时提出警告
         final Class<? extends Handler> klass = getClass();
         if ((klass.isAnonymousClass() || klass.isMemberClass() || klass.isLocalClass()) &&
                 (klass.getModifiers() & Modifier.STATIC) == 0) {
@@ -183,7 +186,77 @@ public Handler() {
 }
 ```
 
-Handler对象生成时便持有了当前线程的Looper和消息队列的引用。
+Handler对象生成时便持有了当前线程的Looper和消息队列的引用。每个Thead对应的Looper通过Looper.prepare()产生：
+
+```java
+    public static void prepare() {
+        prepare(true);
+    }
+
+    private static void prepare(boolean quitAllowed) {
+        if (sThreadLocal.get() != null) {
+            throw new RuntimeException("Only one Looper may be created per thread");
+        }
+        sThreadLocal.set(new Looper(quitAllowed));
+    }
+```
+
+Looper 维护一个 MessageQueue 消息队列 , 用于存储从 Handler 中发送来的消息。
+
+Looper的循环方法loop：
+
+```java
+ public static void loop() {
+        final Looper me = myLooper();
+        if (me == null) {
+            throw new RuntimeException("No Looper; Looper.prepare() wasn't called on this thread.");
+        }
+        if (me.mInLoop) {
+            Slog.w(TAG, "Loop again would have the queued messages be executed"
+                    + " before this one completed.");
+        }
+
+        me.mInLoop = true;
+
+        // Make sure the identity of this thread is that of the local process,
+        // and keep track of what that identity token actually is.
+        Binder.clearCallingIdentity();
+        final long ident = Binder.clearCallingIdentity();
+
+        // Allow overriding a threshold with a system prop. e.g.
+        // adb shell 'setprop log.looper.1000.main.slow 1 && stop && start'
+        final int thresholdOverride =
+                SystemProperties.getInt("log.looper."
+                        + Process.myUid() + "."
+                        + Thread.currentThread().getName()
+                        + ".slow", 0);
+
+        me.mSlowDeliveryDetected = false;
+
+        for (;;) {
+            if (!loopOnce(me, ident, thresholdOverride)) {
+                return;
+            }
+        }
+    }
+```
+
+loopOnce中调用MessageQueue的next方法拿出下个待处理消息，消息在处理后被回收：
+
+```java
+ private static boolean loopOnce(final Looper me,
+            final long ident, final int thresholdOverride) {
+        Message msg = me.mQueue.next(); // might block
+        if (msg == null) {
+            // No message indicates that the message queue is quitting.
+            return false;
+        }
+// ...
+           msg.recycleUnchecked();
+   // ...
+```
+
+
 
 ### Looper 循环是怎样实现的
 
@@ -466,6 +539,31 @@ handleCallback函数中messag.callback也就是我们传的Runnable对象，也�
 
 ### MessageQueue 
 
+#### MessageQueue结构上是Message组成的链表
+
+MessageQueue 中典型的链表查找操作：
+
+```java
+    boolean hasMessages(Handler h, Runnable r, Object object) {
+        if (h == null) {
+            return false;
+        }
+
+        synchronized (this) {
+            Message p = mMessages;
+            while (p != null) {
+                if (p.target == h && p.callback == r && (object == null || p.obj == object)) {
+                    return true;
+                }
+                p = p.next;
+            }
+            return false;
+        }
+    }
+```
+
+
+
 源码路径：frameworks/base/core/java/android/os/MessageQueue.java 
 MessageQueue 消息队列：
 
@@ -473,44 +571,193 @@ MessageQueue 消息队列：
 - next从队列取出消息
 - removeMessage移除消息
 
-#### 消息的处理分为两种情况
+### 消息的Post和Send
 
-Message自己处理或者说是handler对其进行处理。  如果message自己添加了callback(Runnable对象，字段为callback)，则使用自己的callback进行处理，但如果callback对象为null，则交由handle处理。  
-
-对于handler的处理方式又有一些区分，如果在创建handler时带有mCallback(对象为Callback,字段为mCallback)，则交由callback处理，否则才会去有handler的handleMessage方法进行处理。 
-
-### 参考
-
-https://blog.csdn.net/vnanyesheshou/article/details/73484527
-
-
-
-### 其他
-
-http://blog.csdn.net/guolin_blog/article/details/9991569
-
-一个线程，一个Looper，一个消息队列，一个ThreadLocal
-
-避免内存泄漏，使用静态内部类
+Handler post系列方法，将runnable封装成一个Message，然后再调用对应的send系列函数把最终它压入到MessageQueue中。
 
 ```java
-static class MyHandler extends Handler {
-    WeakReference<Activity> mActivity;
+final boolean post(Runnable r)
+final boolean postAtTime(Runnable r, long uptimeMillis)
+final boolean postAtTime(Runnable r, Object token, long uptimeMillis)
+final boolean postDelayed(Runnable r, long delayMillis)
+final boolean postAtFrontOfQueue(Runnable r)
+```
 
-    MyHandler(Activity activity) {
-        mActivity = new WeakReference<>(activity);
+Handler send系列方法，参数直接是Message，经过一些赋值后，直接压入到MessageQueue中。
+
+```java
+final boolean sendEmptyMessage(int what)
+final boolean sendEmptyMessageDelayed(int what, long delayMillis)
+final boolean sendEmptyMessageAtTime(int what, long uptimeMillis)
+final boolean sendMessageDelayed(Message msg, long delayMillis)
+boolean sendMessageAtTime(Message msg, long uptimeMillis)
+final boolean sendMessageAtFrontOfQueue(Message msg) 
+```
+
+消息的处理`dispatchMessage`：
+
+```java
+// Handler.java
+public void dispatchMessage(@NonNull Message msg) {
+        if (msg.callback != null) {
+            //post系列方法走这里
+            handleCallback(msg);
+        } else {
+            if (mCallback != null) {
+              	//Handler构造函数中定义了Callback的这里处理
+                if (mCallback.handleMessage(msg)) {
+                    return;
+                }
+            }
+          	//sendMessage系列方法走这里
+            handleMessage(msg);
+        }
     }
+```
 
-    @Override
-    public void handleMessage(Message message) {
+### 同步屏障机制
 
+同步屏障消息就是在消息队列中插入一个屏障，在屏障之后的所有普通消息都会被挡着，不能被处理。不过异步消息却例外，屏障不会挡住异步消息，因此可以认为，屏障消息就是为了确保异步消息的优先级，设置了屏障后，只能处理其后的异步消息，同步消息会被挡住，除非撤销屏障。
+
+设置同步屏障和创建异步Handler的方法都是标志为hide，说明谷歌不想要我们去使用它。在系统源码中使用比较多，比如在View更新时，draw、requestLayout、invalidate等很多地方都调用了。
+
+一般来说，MessageQueue里面的Message是按照时间从前往后有序排列的。`enqueueMessage`方法中Message对比when大小后插入：
+
+```java
+              for (;;) {
+                    prev = p;
+                    p = p.next;
+                    if (p == null || when < p.when) {
+                        break;
+                    }
+                    if (needWake && p.isAsynchronous()) {
+                        needWake = false;
+                    }
+                }
+```
+
+每一个Message在被插入到MessageQueue中的时候，会强制其`target`属性不能为null：
+
+```java
+// MessageQueue.java
+
+boolean enqueueMessage(Message msg, long when) {
+  // Hanlder不允许为空
+  if (msg.target == null) {
+      throw new IllegalArgumentException("Message must have a target.");
+  }
+  ...
+}
+```
+
+但同时又提供了一个方法来插入一个特殊的消息，强行让`target==null`：
+
+```java
+private int postSyncBarrier(long when) {
+    synchronized (this) {
+        final int token = mNextBarrierToken++;
+        final Message msg = Message.obtain();
+        msg.markInUse();
+        msg.when = when;
+        msg.arg1 = token;
+
+        Message prev = null;
+        Message p = mMessages;
+        // 把当前需要执行的Message全部执行
+        if (when != 0) {
+            while (p != null && p.when <= when) {
+                prev = p;
+                p = p.next;
+            }
+        }
+        // 插入同步屏障
+        if (prev != null) { 
+            msg.next = p;
+            prev.next = msg;
+        } else {
+            msg.next = p;
+            mMessages = msg;
+        }
+        return token;
     }
 }
 ```
 
+同步屏障就是是通过MessageQueue的postSyncBarrier方法开启的，target为null的消息被插入消息队列顶部，当这个消息（屏障）存在时，只有`isAsynchronous`为true的消息被返回：
+
+```java
+Message next() {
+    ···
+    if (msg != null && msg.target == null) {
+        // 同步屏障，找到下一个异步消息
+        do {
+            prevMsg = msg;
+            msg = msg.next;
+        } while (msg != null && !msg.isAsynchronous());
+    }
+    ···
+}
+```
+
+**同步屏障不会自动移除，使用完成之后需要手动进行移除。**
+
+### Message的池化复用
+
+Message通过链表结构实现简单的池化复用，sPool即表头：
+
+```java
+    private static Message sPool;
+    private static int sPoolSize = 0;
+```
+
+`Message.obtain`清除标记后返回复用的Message，
+
+```java
+    public static Message obtain() {
+        synchronized (sPoolSync) {
+            if (sPool != null) {
+                Message m = sPool;
+                sPool = m.next;
+                m.next = null;
+                m.flags = 0; // clear in-use flag
+                sPoolSize--;
+                return m;
+            }
+        }
+        return new Message();
+    }
+```
+
+`recycle`方法回收Message到池中，同时重置Message，最终调用方法：
+
+```java
+    void recycleUnchecked() {
+        // Mark the message as in use while it remains in the recycled object pool.
+        // Clear out all other details.
+        flags = FLAG_IN_USE;
+        what = 0;
+        arg1 = 0;
+        arg2 = 0;
+        obj = null;
+        replyTo = null;
+        sendingUid = UID_NONE;
+        workSourceUid = UID_NONE;
+        when = 0;
+        target = null;
+        callback = null;
+        data = null;
+
+        synchronized (sPoolSync) {
+            if (sPoolSize < MAX_POOL_SIZE) {
+                next = sPool;
+                sPool = this;
+                sPoolSize++;
+            }
+        }
+    }
+```
 
 
-   		// xxx 内存溢出
-        Message msg = new Message();
-        // 正
-        Message m = Message.obtain();
+
+
+
