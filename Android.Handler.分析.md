@@ -157,9 +157,11 @@ private class MyThread extends Thread{
     }
 ```
 
-### Looper
+## Looper
 
 一个Thread一个Looper一个MessageQueue。
+
+![image-20220813004302202](assets/image-20220813004302202.png)
 
 Looper是事件循环的核心。
 
@@ -424,7 +426,33 @@ public static void loop() {
 3. loop()函数循环从MessageQueue中获取消息，并将消息交给消息的target的dispatchMessage去处理。如果MessageQueue中没有消息则获取消息可能会阻塞。
 4. 通过调用Looper的quit或quitsafely终止消息循环。
 
-### Handler主要职责：
+### 关于Looper 死循环为什么不会导致应用卡死
+
+MessageQueue没有消息时，便阻塞在loop的queue.next()中的nativePollOnce()方法里，此时主线程会释放CPU资源进入休眠状态，直到下个消息到达或者有事务发生，通过往pipe管道写端写入数据来唤醒主线程工作。
+
+这里采用的epoll机制，是一种IO多路复用机制，可以同时监控多个描述符，当某个描述符就绪(读或写就绪)，则立刻通知相应程序进行读或写操作，本质同步I/O，即读写是阻塞的。 所以说，主线程大多数时候都是处于休眠状态，并不会消耗大量CPU资源。 
+
+```java
+// MessageQueue.java
+for (;;) {
+            if (nextPollTimeoutMillis != 0) {
+                Binder.flushPendingCommands();
+            }
+
+            nativePollOnce(ptr, nextPollTimeoutMillis);
+```
+
+`nativePollOnce`是个native方法。
+
+```java
+ private native void nativePollOnce(long ptr, int timeoutMillis); /*non-static for callbacks*/
+```
+
+
+
+## Handler
+
+### 主要职责：
 
 1. 发送消息给MessageQueue（消息队列）；
 2. 处理Looper派送过来的消息； 

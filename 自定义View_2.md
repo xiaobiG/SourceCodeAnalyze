@@ -11,24 +11,6 @@
 
 ```
 
-# 颜色定义
-
-```
-int color;
-            switch (i % 3) {
-                case 0:
-                    color = 0xffcc6666;
-                    break;
-                case 1:
-                    color = 0xffcccc66;
-                    break;
-                case 2:
-                default:
-                    color = 0xff6666cc;
-                    break;
-            }
-```
-
 # 获取颜色的方法
 
 ```kotlin
@@ -130,7 +112,7 @@ File file = new File(appDir, fileName);
 
 
 
-# 使用
+# 自定义View内部类xml中声明
 
 内部类或外部类都可用下面方法使用：
 

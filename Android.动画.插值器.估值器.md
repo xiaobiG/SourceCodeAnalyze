@@ -1,0 +1,153 @@
+# 概念
+
+差值器处理的是如何变化，估值器处理的是将变化转化到实际类型（Int，Float，Color）。
+
+一般情况下，**估值器evaluate中的fraction是插值器转换后的值。**
+
+# Interpolators
+
+继承Interpolator实现getInterpolation()
+
+```java
+public class HesitateInterpolator implements Interpolator {
+ 
+    public HesitateInterpolator() {}
+ 
+    @Override
+    public float getInterpolation(float input) {
+        float x = 2.0f * input - 1.0f;
+        return 0.5f * (x * x * x + 1.0f);
+    }
+}
+```
+
+# Evaluator
+
+Evaluator 用于高速动画系统如何从初始值过渡到结束值
+
+Android 提供了以下几种 `Evaluator`
+
+| Evaluator      | 说明                                               |
+| -------------- | -------------------------------------------------- |
+| IntEvaluator   | 用于计算 int 类型属性值的计算器                    |
+| FloatEvaluator | 用于计算 float 类型属性值的计算器                  |
+| ArgbEvaluator  | 用于计算十六进制形式表示的颜色值的计算器           |
+| TypeEvaluator  | 计算器的接口，我们可以实现该接口来完成自定义计算器 |
+
+## `IntEvaluator` 源码
+
+很简单的映射函数：
+
+`result = x0 + t * (x1 - x0)`
+
+```java
+package android.animation;
+
+public class IntEvaluator implements TypeEvaluator<Integer> {
+
+    public Integer evaluate(float fraction, Integer startValue, Integer endValue) {
+        int startInt = startValue;
+        return (int)(startInt + fraction * (endValue - startInt));
+    }
+}
+```
+
+## ArgbEvaluator
+
+这里单例和颜色的计算值得参考。
+
+```java
+public class ArgbEvaluator implements TypeEvaluator {
+    private static final ArgbEvaluator sInstance = new ArgbEvaluator();
+
+    /**
+     * Returns an instance of <code>ArgbEvaluator</code> that may be used in
+     * {@link ValueAnimator#setEvaluator(TypeEvaluator)}. The same instance may
+     * be used in multiple <code>Animator</code>s because it holds no state.
+     * @return An instance of <code>ArgbEvalutor</code>.
+     *
+     * @hide
+     */
+    @UnsupportedAppUsage
+    public static ArgbEvaluator getInstance() {
+        return sInstance;
+    }
+
+    /**
+     * This function returns the calculated in-between value for a color
+     * given integers that represent the start and end values in the four
+     * bytes of the 32-bit int. Each channel is separately linearly interpolated
+     * and the resulting calculated values are recombined into the return value.
+     *
+     * @param fraction The fraction from the starting to the ending values
+     * @param startValue A 32-bit int value representing colors in the
+     * separate bytes of the parameter
+     * @param endValue A 32-bit int value representing colors in the
+     * separate bytes of the parameter
+     * @return A value that is calculated to be the linearly interpolated
+     * result, derived by separating the start and end values into separate
+     * color channels and interpolating each one separately, recombining the
+     * resulting values in the same way.
+     */
+    public Object evaluate(float fraction, Object startValue, Object endValue) {
+        int startInt = (Integer) startValue;
+        float startA = ((startInt >> 24) & 0xff) / 255.0f;
+        float startR = ((startInt >> 16) & 0xff) / 255.0f;
+        float startG = ((startInt >>  8) & 0xff) / 255.0f;
+        float startB = ( startInt        & 0xff) / 255.0f;
+
+        int endInt = (Integer) endValue;
+        float endA = ((endInt >> 24) & 0xff) / 255.0f;
+        float endR = ((endInt >> 16) & 0xff) / 255.0f;
+        float endG = ((endInt >>  8) & 0xff) / 255.0f;
+        float endB = ( endInt        & 0xff) / 255.0f;
+
+        // convert from sRGB to linear
+        startR = (float) Math.pow(startR, 2.2);
+        startG = (float) Math.pow(startG, 2.2);
+        startB = (float) Math.pow(startB, 2.2);
+
+        endR = (float) Math.pow(endR, 2.2);
+        endG = (float) Math.pow(endG, 2.2);
+        endB = (float) Math.pow(endB, 2.2);
+
+        // compute the interpolated color in linear space
+        float a = startA + fraction * (endA - startA);
+        float r = startR + fraction * (endR - startR);
+        float g = startG + fraction * (endG - startG);
+        float b = startB + fraction * (endB - startB);
+
+        // convert back to sRGB in the [0..255] range
+        a = a * 255.0f;
+        r = (float) Math.pow(r, 1.0 / 2.2) * 255.0f;
+        g = (float) Math.pow(g, 1.0 / 2.2) * 255.0f;
+        b = (float) Math.pow(b, 1.0 / 2.2) * 255.0f;
+
+        return Math.round(a) << 24 | Math.round(r) << 16 | Math.round(g) << 8 | Math.round(b);
+    }
+}
+```
+
+### 例子：计算两页之间的颜色过渡
+
+```java
+ArgbEvaluator argbEvaluator = new ArgbEvaluator();
+int curColor = (int)argbEvaluator.evaluate(pageOffset,PageOneColor,PageTwoColor);
+```
+
+
+
+## 自定义Evaluator
+
+参考`IntEvaluator` 的源码
+
+使用:
+
+```java
+ValueAnimator anim = ValueAnimator.ofObject(new PointEvaluator(), startPoint, endPoint);
+
+// ObjectAnimator#setEvaluator()
+ObjectAnimator objectAnimator = ObjectAnimator.ofObject(this, "color", new ColorEvaluator(),
+                Color.BLUE, Color.RED);
+```
+

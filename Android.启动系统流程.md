@@ -1,0 +1,2 @@
+- 按电源键 -> 加载引导程序 BootLoader 到 RAM -> 执行 BootLoader 程序启动内核 -> 启动 init 进程 -> 启动 Zygote 和各种守护进程 ->
+- 启动 System Server 服务进程开启 AMS、WMS 等 -> 启动 Launcher 应用进程
