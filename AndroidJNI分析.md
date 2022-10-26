@@ -86,9 +86,19 @@ x86_64——x86_64
 
 > https://www.jianshu.com/p/b4431ac22ec2
 
-## Android.mk
+# NDK
 
-## CMake
+## 基于Make(Android.mk)
+
+`Android.mk` 文件位于项目 `jni/` 目录的子目录中，用于向构建系统描述源文件和共享库。它实际上是一个微小的 GNU makefile 片段，构建系统会将其解析一次或多次。`Android.mk` 文件用于定义 [`Application.mk`](https://developer.android.com/ndk/guides/application_mk?hl=zh-cn)、构建系统和环境变量所未定义的项目级设置。它还可替换特定模块的项目级设置。
+
+`Android.mk` 的语法支持将源文件分组为“模块”。模块是静态库、共享库或独立的可执行文件。您可在每个 `Android.mk` 文件中定义一个或多个模块，也可在多个模块中使用同一个源文件。构建系统只将共享库放入您的应用软件包。此外，静态库可生成共享库。
+
+除了封装库之外，构建系统还可为您处理各种其他事项。例如，您无需在 `Android.mk` 文件中列出头文件或生成的文件之间的显式依赖关系。NDK 构建系统会自动计算这些关系。因此，您应该能够享受到未来 NDK 版本中支持的新工具链/平台功能带来的益处，而无需处理 `Android.mk` 文件。
+
+> [Google对Android.mk的说明](https://developer.android.com/ndk/guides/android_mk?hl=zh-cn)
+
+## 基于CMake
 
 > [CMake手册](https://www.zybuluo.com/khan-lau/note/254724)
 
